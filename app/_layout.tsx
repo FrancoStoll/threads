@@ -1,37 +1,73 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { Slot, Stack, useRouter, useSegments } from "expo-router";
+import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/clerk-expo";
+import { tokenCache } from "@/utils/cache";
+import { LogBox } from "react-native";
+import {
+  useFonts,
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_700Bold,
+} from "@expo-google-fonts/dm-sans";
+import { useEffect } from "react";
+import * as SplashScreen from "expo-splash-screen";
 
-import { useColorScheme } from '@/hooks/useColorScheme';
+const clerkPublishedKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+import { ConvexReactClient } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
+const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
+  unsavedChangesWarning: false,
+});
+
+if (!clerkPublishedKey) {
+  throw new Error(
+    "Missing Publishable Key. Please set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in your .env"
+  );
+}
+
+LogBox.ignoreLogs(["Clerk: Clerk has been loaded with development keys"]);
+
+// Prevent auto hide splash screen
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+const InitialLayout = () => {
+  const [fontsLoaded] = useFonts({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
   });
 
+  const { isLoaded, isSignedIn } = useAuth();
+  const segment = useSegments();
+  const router = useRouter();
   useEffect(() => {
-    if (loaded) {
+    if (!fontsLoaded) {
       SplashScreen.hideAsync();
     }
-  }, [loaded]);
+  }, [fontsLoaded]);
 
-  if (!loaded) {
-    return null;
-  }
+  useEffect(() => {
+    if (!isLoaded) return;
+    const inAuthGroup = segment[0] === "(auth)";
 
+    if (!inAuthGroup && isSignedIn) {
+      router.replace("/(auth)/(tabs)/feed/");
+    } else if (!isSignedIn && inAuthGroup) {
+      router.replace("/(public)");
+    }
+  }, [isSignedIn]);
+
+  return <Slot />;
+};
+
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-    </ThemeProvider>
+    <ClerkProvider publishableKey={clerkPublishedKey!} tokenCache={tokenCache}>
+      <ClerkLoaded>
+        <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+          <InitialLayout />
+        </ConvexProviderWithClerk>
+      </ClerkLoaded>
+    </ClerkProvider>
   );
 }
